@@ -32,7 +32,16 @@ export function routeModel(body: Body): Body {
     /architecture|refactor|design|system/i.test(text) ||
     /```[\s\S]{4000,}/.test(text);
 
-  const nextModel = wantsSmart ? config.smartModel : config.cheapModel;
+  const wantsPremium =
+    wantsSmart &&
+    (text.length > 18000 ||
+      /```[\s\S]{12000,}/.test(text) ||
+      /(architecture|refactor).*(system|codebase|entire)/i.test(text));
+
+  let nextModel = config.cheapModel;
+  if (wantsPremium) nextModel = config.premiumModel;
+  else if (wantsSmart) nextModel = config.smartModel;
+
   if (nextModel === model) return body;
   return { ...body, model: nextModel };
 }

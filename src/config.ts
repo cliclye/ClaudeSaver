@@ -7,8 +7,12 @@ export const config = {
   /** If set, outgoing requests use this key instead of the client's x-api-key */
   fixedApiKey: process.env.ANTHROPIC_API_KEY?.trim() || undefined,
   redisUrl: process.env.REDIS_URL?.trim() || undefined,
-  cheapModel: process.env.CHEAP_MODEL ?? "claude-3-5-haiku-20241022",
-  smartModel: process.env.SMART_MODEL ?? "claude-sonnet-4-20250514",
+  /** Haiku 4.5 — default for small / simple requests */
+  cheapModel: process.env.CHEAP_MODEL ?? "claude-haiku-4-5-20251001",
+  /** Sonnet 4.6 — default for medium “complex” requests */
+  smartModel: process.env.SMART_MODEL ?? "claude-sonnet-4-6",
+  /** Opus 4.7 — default for largest / heaviest routed requests */
+  premiumModel: process.env.PREMIUM_MODEL ?? "claude-opus-4-7",
   cacheTtlSeconds: Number(process.env.CACHE_TTL_SECONDS ?? 86400),
   cacheMaxEntries: Number(process.env.CACHE_MAX_ENTRIES ?? 5000),
 };

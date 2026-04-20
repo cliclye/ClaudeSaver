@@ -33,8 +33,9 @@ cp .env.example .env
 | `PORT` | `8766` | Port the server listens on |
 | `ANTHROPIC_UPSTREAM_URL` | `https://api.anthropic.com` | Where requests are forwarded (usually leave as-is) |
 | `ANTHROPIC_API_KEY` | (unset) | If set, outgoing calls use this key instead of the client’s `x-api-key` (only on trusted machines) |
-| `CHEAP_MODEL` | `claude-3-5-haiku-20241022` | Model used for “small / simple” routed requests |
-| `SMART_MODEL` | `claude-sonnet-4-20250514` | Model used for “large / complex” routed requests |
+| `CHEAP_MODEL` | `claude-haiku-4-5-20251001` | **Haiku 4.5** — small / simple routed requests |
+| `SMART_MODEL` | `claude-sonnet-4-6` | **Sonnet 4.6** — medium “complex” routed requests |
+| `PREMIUM_MODEL` | `claude-opus-4-7` | **Opus 4.7** — largest / heaviest routed requests (see router heuristics) |
 | `REDIS_URL` | (unset) | If set, shared cache uses Redis; otherwise in-memory LRU |
 | `CACHE_TTL_SECONDS` | `86400` | How long entries live (seconds) |
 | `CACHE_MAX_ENTRIES` | `5000` | Max entries for the in-memory cache |
@@ -126,7 +127,7 @@ If `REDIS_URL` is unset, caching uses the in-memory LRU (not shared across proce
 
 ## 7. What the proxy does (behavior)
 
-- **`POST /v1/messages`**: prompt compression → routing (cheap vs smart) → cache lookup (only when `stream` is not `true`) → forwards to the upstream API.
+- **`POST /v1/messages`**: prompt compression → routing (Haiku vs Sonnet vs Opus by heuristics) → cache lookup (only when `stream` is not `true`) → forwards to the upstream API.
 - **Other** `GET`/`POST` `/v1/...`: passthrough to the same upstream.
 - **`GET /health`**: health endpoint.
 
@@ -154,6 +155,6 @@ If you set `ANTHROPIC_API_KEY` on the **server**, anyone who can reach the proxy
 | `ECONNREFUSED` from CLI | Proxy not running, or wrong host/port in `ANTHROPIC_BASE_URL` |
 | Still hitting Anthropic directly | `ANTHROPIC_BASE_URL` unset in the same shell that runs `claude`; confirm with `echo $ANTHROPIC_BASE_URL` |
 | IDE extension ignores base URL | Some extensions do not respect `ANTHROPIC_BASE_URL`; validate with CLI first |
-| Wrong model | Adjust `CHEAP_MODEL` / `SMART_MODEL` or routing logic in code |
+| Wrong model | Adjust `CHEAP_MODEL` / `SMART_MODEL` / `PREMIUM_MODEL` or routing logic in `src/core/router.ts` |
 
 That is the full end-to-end path: install → configure → run proxy → set `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` → run `claude`, with optional Redis and cache tuning.
