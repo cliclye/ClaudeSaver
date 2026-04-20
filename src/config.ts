@@ -15,4 +15,11 @@ export const config = {
   premiumModel: process.env.PREMIUM_MODEL ?? "claude-opus-4-7",
   cacheTtlSeconds: Number(process.env.CACHE_TTL_SECONDS ?? 86400),
   cacheMaxEntries: Number(process.env.CACHE_MAX_ENTRIES ?? 5000),
+  /**
+   * When true, do not rewrite `model` (subscription / OAuth users often match on allowed catalog).
+   * Prompt compression still runs unless you add a separate flag later.
+   */
+  skipModelRouting:
+    process.env.CLAUDE_SAVER_SKIP_MODEL_ROUTING === "1" ||
+    process.env.CLAUDE_SAVER_SKIP_MODEL_ROUTING === "true",
 };

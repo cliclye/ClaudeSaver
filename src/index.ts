@@ -11,10 +11,48 @@ import { optimizeMessagesRequest } from "./core/optimizer.js";
 import { forwardToAnthropic, webResponseToNodeStream } from "./upstream.js";
 import { sha256Hex } from "./utils/hash.js";
 
-function apiKeyFingerprint(req: { headers: Record<string, unknown> }): string {
-  const k =
-    config.fixedApiKey ?? (typeof req.headers["x-api-key"] === "string" ? req.headers["x-api-key"] : "");
-  return k ? sha256Hex(k).slice(0, 16) : "anon";
+/**
+ * Isolate cache entries per caller. API-key users use `x-api-key`; Pro/Max/Team OAuth uses
+ * `Authorization: Bearer …` (and often `X-Claude-Code-Session-Id` — forwarded to upstream as well).
+ */
+function cacheIdentityFingerprint(req: import("fastify").FastifyRequest): string {
+  if (config.fixedApiKey && !usesBearerAuth(req)) return sha256Hex(config.fixedApiKey).slice(0, 16);
+
+  const apiKey =
+    typeof req.headers["x-api-key"] === "string"
+      ? req.headers["x-api-key"]
+      : Array.isArray(req.headers["x-api-key"])
+        ? req.headers["x-api-key"][0]
+        : "";
+  if (apiKey) return sha256Hex(apiKey).slice(0, 16);
+
+  const auth =
+    typeof req.headers["authorization"] === "string"
+      ? req.headers["authorization"]
+      : Array.isArray(req.headers["authorization"])
+        ? req.headers["authorization"][0]
+        : "";
+  if (auth) return sha256Hex(auth).slice(0, 16);
+
+  const session =
+    typeof req.headers["x-claude-code-session-id"] === "string"
+      ? req.headers["x-claude-code-session-id"]
+      : Array.isArray(req.headers["x-claude-code-session-id"])
+        ? req.headers["x-claude-code-session-id"][0]
+        : "";
+  if (session) return sha256Hex(session).slice(0, 16);
+
+  return "anon";
+}
+
+function usesBearerAuth(req: import("fastify").FastifyRequest): boolean {
+  const raw =
+    typeof req.headers["authorization"] === "string"
+      ? req.headers["authorization"]
+      : Array.isArray(req.headers["authorization"])
+        ? req.headers["authorization"][0]
+        : "";
+  return typeof raw === "string" && raw.trim().toLowerCase().startsWith("bearer ");
 }
 
 const hopResponse = new Set([
@@ -47,7 +85,7 @@ async function handleV1Messages(req: import("fastify").FastifyRequest, reply: im
   let body = raw as Record<string, unknown>;
   body = optimizeMessagesRequest(body);
 
-  const fingerprint = apiKeyFingerprint(req);
+  const fingerprint = cacheIdentityFingerprint(req);
   const cache = getCache();
   const cacheable = shouldCache(body);
   const key = cacheKeyForMessages(body, fingerprint);

@@ -1,161 +1,219 @@
 # Claude Saver
 
-A local **Anthropic-compatible proxy** so tools like **Claude Code CLI** can keep using the normal SDK while you apply caching, routing, and prompt compression in one place.
+Local proxy for **[Claude Code CLI](https://code.claude.com/)** that sits between your machine and `api.anthropic.com`. It can **compress prompts**, **route requests across Haiku / Sonnet / Opus**, and **cache** non-streaming responses so you spend fewer tokens on repeat work.
 
-## Prerequisites
+**You still use Anthropic’s normal billing** (API key or Pro/Max subscription). This app does not replace an API key or login—it only intermediates HTTP.
 
-- **Node.js 20+** (`node -v`)
-- **Anthropic API key** (`sk-ant-...`) with Claude API access
-- **Claude Code CLI** installed and working **without** the proxy first (so issues are easier to isolate)
+---
 
-## 1. Install the project
+## Setup overview
 
-From the project root (`ClaudeSaver`):
+| Step | What you do |
+|------|----------------|
+| 1 | Install dependencies in this repo |
+| 2 | *(Optional)* copy `.env.example` → `.env` and edit |
+| 3 | Start the proxy (`npm run dev`) |
+| 4 | Tell Claude Code to use the proxy (`ANTHROPIC_BASE_URL`) and pick **Path A** (API key) or **Path B** (subscription) |
+
+Default listen address: **`http://127.0.0.1:8766`**.
+
+---
+
+## 1. Install
 
 ```bash
 cd /path/to/ClaudeSaver
 npm install
-npm run setup   # creates .env from .env.example if .env is missing (optional)
 ```
 
-`npm run setup` is a small helper so you do not have to remember `cp .env.example .env`. Edit `.env` afterward if you want non-default values.
-
-## 2. Configure the proxy (optional)
-
-If you skipped `npm run setup`, copy the example env file:
+(Optional) create `.env` from the template:
 
 ```bash
-cp .env.example .env
+npm run setup
 ```
 
-### Variables the proxy reads
+or manually: `cp .env.example .env`. You can skip this until you need non-default ports or Redis.
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `HOST` | `127.0.0.1` | Address the server binds to |
-| `PORT` | `8766` | Port the server listens on |
-| `ANTHROPIC_UPSTREAM_URL` | `https://api.anthropic.com` | Where requests are forwarded (usually leave as-is) |
-| `ANTHROPIC_API_KEY` | (unset) | If set, outgoing calls use this key instead of the client’s `x-api-key` (only on trusted machines) |
-| `CHEAP_MODEL` | `claude-haiku-4-5-20251001` | **Haiku 4.5** — small / simple routed requests |
-| `SMART_MODEL` | `claude-sonnet-4-6` | **Sonnet 4.6** — medium “complex” routed requests |
-| `PREMIUM_MODEL` | `claude-opus-4-7` | **Opus 4.7** — largest / heaviest routed requests (see router heuristics) |
-| `REDIS_URL` | (unset) | If set, shared cache uses Redis; otherwise in-memory LRU |
-| `CACHE_TTL_SECONDS` | `86400` | How long entries live (seconds) |
-| `CACHE_MAX_ENTRIES` | `5000` | Max entries for the in-memory cache |
+**Requires:** Node.js 20+ (`node -v`).
 
-### Loading `.env`
+---
 
-On startup, the server loads **`.env` next to `package.json`** (via [`dotenv`](https://github.com/motdotla/dotenv)), not only from the current working directory, so `npm run dev` / `npm start` pick up variables without manual `export`. Values already set in the shell still take precedence.
+## 2. Start the proxy
 
-If you prefer not to use a file, you can keep unsetting `.env` and export variables in your shell instead.
-
-## 3. Build and run
-
-**Development** (TypeScript with reload):
+Development (reloads on file changes):
 
 ```bash
 npm run dev
 ```
 
-**Production-style** (compiled JS):
+Production-style:
 
 ```bash
 npm run build
 npm start
 ```
 
-You should see logs that the server is listening on `http://127.0.0.1:8766` (or your `HOST`/`PORT`).
+The server loads **`.env` next to `package.json`** on startup ([`dotenv`](https://github.com/motdotla/dotenv)). Shell exports override `.env` values.
 
-## 4. Health check
-
-With the server running:
+**Confirm it is running:**
 
 ```bash
 curl -s http://127.0.0.1:8766/health
 ```
 
-Expected JSON includes `"ok": true` and `"service": "claude-saver"`.
+You should see `"ok": true`. If you changed `PORT` or `HOST` in `.env`, use that URL instead.
 
-## 5. Wire Claude Code CLI through the proxy
+---
 
-The CLI must send API traffic to the **proxy origin**, not to `api.anthropic.com` directly. That is done with **`ANTHROPIC_BASE_URL`**.
+## 3. Point Claude Code at the proxy
 
-**One terminal session:**
+Claude Code reads **`ANTHROPIC_BASE_URL`**. Set it to the proxy **origin only**—no path, no `/v1`:
+
+```text
+http://127.0.0.1:8766
+```
+
+If you changed the port in `.env`, match it here (example: `http://127.0.0.1:9000`).
+
+Then choose **one** of the next two paths. They correspond to how you already use Claude Code **without** this proxy.
+
+---
+
+### Path A — Claude Console API key
+
+Use this if you normally set `ANTHROPIC_API_KEY` and bill via the [Anthropic Console](https://platform.claude.com/).
+
+1. Start the proxy (step 2).
+2. In the **same terminal** where you run `claude`:
 
 ```bash
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8766"
-export ANTHROPIC_API_KEY="sk-ant-..."   # your real key
+export ANTHROPIC_API_KEY="sk-ant-..."   # your Console API key
 claude
 ```
 
-**Important:**
+3. If something breaks, verify the proxy URL matches `HOST`/`PORT` from `.env`.
 
-- Use the **origin only**: `http://127.0.0.1:8766` — **no** `/v1` suffix.
-- Port must match `PORT` (default `8766`).
-- If the proxy runs on another machine, use that host/IP instead of `127.0.0.1`.
+---
 
-### Persist for every new shell (example: zsh)
+### Path B — Pro / Max / Team (subscription, no API key)
 
-Add to `~/.zshrc` (adjust host/port if needed):
+Use this if you **sign in with your Claude account** and do **not** use a Console API key.
+
+1. **Remove** the API key from your environment so subscription auth is not overridden:
+
+```bash
+unset ANTHROPIC_API_KEY
+echo "$ANTHROPIC_API_KEY"    # should be empty
+```
+
+2. **Log in** if you have not already: run `claude` once and complete browser login. (For headless/CI, see Anthropic’s [`claude setup-token`](https://code.claude.com/docs/en/authentication#generate-a-long-lived-token) and `CLAUDE_CODE_OAUTH_TOKEN`.)
+3. Start the proxy (step 2).
+4. Point only the base URL at the proxy:
+
+```bash
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8766"
+claude
+```
+
+**Important for Path B**
+
+- Do **not** put `ANTHROPIC_API_KEY` in this project’s **server** `.env` unless you know you need it—subscription traffic uses `Authorization: Bearer …`, and the proxy is written so a server-injected API key does not stomp Bearer auth.
+- If changing models in the proxy causes errors on your plan, set in **server** `.env`:
+
+```bash
+CLAUDE_SAVER_SKIP_MODEL_ROUTING=1
+```
+
+That turns off automatic Haiku/Sonnet/Opus switching; prompt compression still runs.
+
+---
+
+## 4. Keep the settings (optional)
+
+To avoid exporting every time, add to `~/.zshrc` or `~/.bashrc`:
+
+**Path A (API key):**
 
 ```bash
 export ANTHROPIC_BASE_URL="http://127.0.0.1:8766"
 export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
-Then `source ~/.zshrc` or open a new terminal.
+**Path B (subscription):**
 
-### Bypass the proxy (talk to Anthropic directly)
+```bash
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8766"
+# Do NOT export ANTHROPIC_API_KEY here
+```
+
+Then run `source ~/.zshrc` (or open a new terminal).
+
+**Temporarily bypass the proxy** (talk to Anthropic directly):
 
 ```bash
 env -u ANTHROPIC_BASE_URL claude
 ```
 
-(or `unset ANTHROPIC_BASE_URL` in that shell)
+---
 
-## 6. Optional: Redis cache
+## Optional: Redis for a shared cache
 
-Run Redis (example: `redis://127.0.0.1:6379`).
-
-Set `REDIS_URL` in the environment for the proxy process, e.g.:
+By default the cache is **in-memory** (per proxy process). To share cache across processes, run Redis and set in **server** `.env` or shell:
 
 ```bash
-export REDIS_URL="redis://127.0.0.1:6379"
-npm run dev
+REDIS_URL=redis://127.0.0.1:6379
 ```
 
-If `REDIS_URL` is unset, caching uses the in-memory LRU (not shared across processes).
+---
 
-## 7. What the proxy does (behavior)
+## Environment variables (reference)
 
-- **`POST /v1/messages`**: prompt compression → routing (Haiku vs Sonnet vs Opus by heuristics) → cache lookup (only when `stream` is not `true`) → forwards to the upstream API.
-- **Other** `GET`/`POST` `/v1/...`: passthrough to the same upstream.
-- **`GET /health`**: health endpoint.
+All are optional unless noted. Defaults match a local dev setup.
 
-Check responses for header:
+| Variable | Default | Role |
+|----------|---------|------|
+| `HOST` | `127.0.0.1` | Bind address |
+| `PORT` | `8766` | Listen port (must match what you put in `ANTHROPIC_BASE_URL`) |
+| `ANTHROPIC_UPSTREAM_URL` | `https://api.anthropic.com` | Upstream API (rarely changed) |
+| `ANTHROPIC_API_KEY` | *(unset)* | **Server-side** API key injection for trusted setups only; leave unset for Path B |
+| `CHEAP_MODEL` | `claude-haiku-4-5-20251001` | Router: light requests |
+| `SMART_MODEL` | `claude-sonnet-4-6` | Router: medium complexity |
+| `PREMIUM_MODEL` | `claude-opus-4-7` | Router: heaviest prompts |
+| `CLAUDE_SAVER_SKIP_MODEL_ROUTING` | *(unset)* | Set to `1` or `true` to disable model switching |
+| `REDIS_URL` | *(unset)* | Shared cache; omit for in-memory LRU |
+| `CACHE_TTL_SECONDS` | `86400` | Cache entry lifetime |
+| `CACHE_MAX_ENTRIES` | `5000` | In-memory cache size cap |
 
-`x-claude-saver-cache`: `HIT` | `MISS-STORED` | `SKIP` | `BYPASS-STREAM` | `ERROR` (upstream error)
+Response header **`x-claude-saver-cache`** can be `HIT`, `MISS-STORED`, `SKIP`, `BYPASS-STREAM`, or `ERROR` for debugging.
 
-`BYPASS-STREAM`: streaming request; not cached in the current implementation.
+---
 
-## 8. Security notes
+## What the proxy does
 
-Prefer `ANTHROPIC_API_KEY` only on the **client** unless you fully trust the machine running the proxy.
+- **`POST /v1/messages`**: optional compression → optional model routing → optional cache (not for streaming) → forward to Anthropic.
+- **Other `/v1/...` routes**: forwarded as-is.
+- **`GET /health`**: health check.
 
-If you set `ANTHROPIC_API_KEY` on the **server**, anyone who can reach the proxy could abuse it unless you also firewall / bind to localhost (`HOST=127.0.0.1`).
+**Limitations:** streaming responses are not cached. There is no repo-wide context indexer here—only request-level optimizations.
 
-## 9. Limitations (current code)
+---
 
-- Streaming requests are not cached.
-- Context pruning and diff-only workflows are not implemented inside this repo; they require trimming or rewriting messages before send (client-side or another service).
+## Security (short)
 
-## 10. Troubleshooting
+- Bind to `127.0.0.1` unless you intend LAN access.
+- Treat server `ANTHROPIC_API_KEY` like a secret; anyone who can reach the proxy could abuse it.
 
-| Symptom | What to check |
-|---------|----------------|
-| `ECONNREFUSED` from CLI | Proxy not running, or wrong host/port in `ANTHROPIC_BASE_URL` |
-| Still hitting Anthropic directly | `ANTHROPIC_BASE_URL` unset in the same shell that runs `claude`; confirm with `echo $ANTHROPIC_BASE_URL` |
-| IDE extension ignores base URL | Some extensions do not respect `ANTHROPIC_BASE_URL`; validate with CLI first |
-| Wrong model | Adjust `CHEAP_MODEL` / `SMART_MODEL` / `PREMIUM_MODEL` or routing logic in `src/core/router.ts` |
+---
 
-That is the full end-to-end path: `npm install` → optional `npm run setup` and `.env` edits → `npm run dev` (`.env` loads automatically) → set `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` for `claude` → optional Redis and cache tuning.
+## Troubleshooting
+
+| Problem | What to try |
+|---------|-------------|
+| Connection refused | Proxy not running, or `ANTHROPIC_BASE_URL` host/port wrong |
+| Claude ignores the proxy | Same shell as `claude`; run `echo $ANTHROPIC_BASE_URL` |
+| Auth errors after enabling proxy (Path B) | `unset ANTHROPIC_API_KEY`; remove server `ANTHROPIC_API_KEY` from `.env`; check `/status` in Claude Code |
+| Wrong or unsupported model | Set `CLAUDE_SAVER_SKIP_MODEL_ROUTING=1` or adjust model env vars |
+| IDE vs CLI differs | Some IDE integrations ignore `ANTHROPIC_BASE_URL`; test with the CLI first |
+
+More detail: [Claude Code authentication](https://code.claude.com/docs/en/authentication), [environment variables](https://code.claude.com/docs/en/env-vars).

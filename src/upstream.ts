@@ -15,6 +15,21 @@ const HOP = new Set([
   "content-length",
 ]);
 
+function headerString(req: FastifyRequest, name: string): string | undefined {
+  const v = req.headers[name];
+  if (typeof v === "string") return v;
+  if (Array.isArray(v) && v.length) return v[0];
+  return undefined;
+}
+
+/**
+ * Claude Code can authenticate with:
+ * - `X-Api-Key` (Console API key / `ANTHROPIC_API_KEY`)
+ * - `Authorization: Bearer …` (`ANTHROPIC_AUTH_TOKEN`, OAuth subscription, `CLAUDE_CODE_OAUTH_TOKEN`, gateways)
+ *
+ * If the client uses Bearer auth (typical for Pro/Max/Team subscription login), we must **not** inject a
+ * server-side `ANTHROPIC_API_KEY` — that would send conflicting credentials to api.anthropic.com.
+ */
 function buildUpstreamHeaders(req: FastifyRequest): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k0, v] of Object.entries(req.headers)) {
@@ -27,8 +42,13 @@ function buildUpstreamHeaders(req: FastifyRequest): Record<string, string> {
       out[k0] = v;
     }
   }
-  const key = config.fixedApiKey ?? (req.headers["x-api-key"] as string | undefined);
-  if (key) out["x-api-key"] = key;
+
+  const authorization = headerString(req, "authorization");
+  const usesBearer =
+    typeof authorization === "string" && authorization.trim().toLowerCase().startsWith("bearer ");
+
+  if (config.fixedApiKey && !usesBearer) out["x-api-key"] = config.fixedApiKey;
+
   return out;
 }
 
