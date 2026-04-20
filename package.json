@@ -6,12 +6,14 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
-    "dev": "node --watch --import tsx src/index.ts"
+    "dev": "node --watch --import tsx src/index.ts",
+    "setup": "node scripts/setup-env.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "dotenv": "^17.4.2",
     "fastify": "^5.2.1",
     "ioredis": "^5.4.2"
   },

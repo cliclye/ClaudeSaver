@@ -15,11 +15,14 @@ From the project root (`ClaudeSaver`):
 ```bash
 cd /path/to/ClaudeSaver
 npm install
+npm run setup   # creates .env from .env.example if .env is missing (optional)
 ```
+
+`npm run setup` is a small helper so you do not have to remember `cp .env.example .env`. Edit `.env` afterward if you want non-default values.
 
 ## 2. Configure the proxy (optional)
 
-Copy the example env file and edit it:
+If you skipped `npm run setup`, copy the example env file:
 
 ```bash
 cp .env.example .env
@@ -42,11 +45,9 @@ cp .env.example .env
 
 ### Loading `.env`
 
-Node does not load `.env` automatically unless you use something like `dotenv`. This project reads **process env only**. Easiest options:
+On startup, the server loads **`.env` next to `package.json`** (via [`dotenv`](https://github.com/motdotla/dotenv)), not only from the current working directory, so `npm run dev` / `npm start` pick up variables without manual `export`. Values already set in the shell still take precedence.
 
-- Export variables in your shell before `npm run dev` / `npm start`, or
-- Use a launcher that injects `.env` (e.g. `export $(grep -v '^#' .env | xargs)` — only if your `.env` has no spaces/special cases), or
-- Add `dotenv` later if you want automatic `.env` loading.
+If you prefer not to use a file, you can keep unsetting `.env` and export variables in your shell instead.
 
 ## 3. Build and run
 
@@ -157,4 +158,4 @@ If you set `ANTHROPIC_API_KEY` on the **server**, anyone who can reach the proxy
 | IDE extension ignores base URL | Some extensions do not respect `ANTHROPIC_BASE_URL`; validate with CLI first |
 | Wrong model | Adjust `CHEAP_MODEL` / `SMART_MODEL` / `PREMIUM_MODEL` or routing logic in `src/core/router.ts` |
 
-That is the full end-to-end path: install → configure → run proxy → set `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` → run `claude`, with optional Redis and cache tuning.
+That is the full end-to-end path: `npm install` → optional `npm run setup` and `.env` edits → `npm run dev` (`.env` loads automatically) → set `ANTHROPIC_BASE_URL` + `ANTHROPIC_API_KEY` for `claude` → optional Redis and cache tuning.

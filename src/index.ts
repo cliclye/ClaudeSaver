@@ -1,4 +1,10 @@
+import { config as loadEnv } from "dotenv";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import Fastify from "fastify";
+
+/** Project-root `.env` (works even if `cwd` is not the repo root). */
+loadEnv({ path: join(dirname(fileURLToPath(import.meta.url)), "..", ".env") });
 import { config } from "./config.js";
 import { cacheKeyForMessages, getCache, shouldCache } from "./core/cache.js";
 import { optimizeMessagesRequest } from "./core/optimizer.js";
