@@ -182,9 +182,34 @@ async function main() {
 
   app.all("/v1/*", async (req, reply) => passthrough(req, reply));
 
-  await app.listen({ host: config.host, port: config.port });
+  try {
+    await app.listen({ host: config.host, port: config.port });
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    if (e?.code === "EADDRINUSE") {
+      console.error(
+        `\nPort ${config.port} is already in use on ${config.host}.\n` +
+          `Either stop the other process or set PORT=<free port> in .env (and match it in ANTHROPIC_BASE_URL).\n`,
+      );
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  const origin = `http://${config.host}:${config.port}`;
   app.log.info(
-    `Claude Saver proxy listening on http://${config.host}:${config.port} — set ANTHROPIC_BASE_URL to this origin for Claude Code CLI`,
+    `Claude Saver listening on ${origin} — set ANTHROPIC_BASE_URL=${origin} for Claude Code`,
+  );
+  console.log(
+    [
+      "",
+      "  Claude Saver is ready.",
+      "",
+      `    Point Claude Code at:   ANTHROPIC_BASE_URL=${origin}`,
+      `    Quick launch (this repo): npm run claude`,
+      `    Health check:           curl -s ${origin}/health`,
+      "",
+    ].join("\n"),
   );
 }
 
