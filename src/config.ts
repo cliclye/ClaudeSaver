@@ -12,12 +12,14 @@ function parseInt(v: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-const upstream = (process.env.ANTHROPIC_UPSTREAM_URL ?? "https://api.anthropic.com").trim();
+const anthropicUpstream = (process.env.ANTHROPIC_UPSTREAM_URL ?? "https://api.anthropic.com").trim();
 
 export const config = {
   host: process.env.HOST?.trim() || "127.0.0.1",
   port: parseInt(process.env.PORT, 8766),
-  upstreamUrl: upstream.replace(/\/$/, ""),
+  /** @deprecated kept for backwards compatibility; use `anthropicUpstreamUrl` */
+  upstreamUrl: anthropicUpstream.replace(/\/$/, ""),
+  anthropicUpstreamUrl: anthropicUpstream.replace(/\/$/, ""),
   /** If set, outgoing requests use this key instead of the client's x-api-key */
   fixedApiKey: process.env.ANTHROPIC_API_KEY?.trim() || undefined,
   redisUrl: process.env.REDIS_URL?.trim() || undefined,

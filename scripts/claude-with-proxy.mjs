@@ -6,13 +6,45 @@
 //   npm run claude -- --api-key # keep ANTHROPIC_API_KEY from env
 //   npm run claude -- --        # extra args after `--` are forwarded to `claude`
 
-import { spawn } from "node:child_process";
-import { readFileSync, existsSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { readFileSync, existsSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { openDashboardOnce, startTitleUpdater } from "./lib-terminal-ui.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, "..");
+
+function expectedBuild() {
+  try {
+    const pkg = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8"));
+    const v = typeof pkg.version === "string" ? pkg.version : "0.0.0";
+    let mtime = 0;
+    for (const f of [
+      join(repoRoot, "dist", "index.js"),
+      join(repoRoot, "dist", "upstream.js"),
+      join(repoRoot, "dist", "config.js"),
+    ]) {
+      try {
+        const m = statSync(f).mtimeMs;
+        if (m > mtime) mtime = m;
+      } catch {
+        // not built yet; fall through to source
+      }
+    }
+    if (mtime === 0) {
+      try {
+        mtime = statSync(join(repoRoot, "src", "index.ts")).mtimeMs;
+      } catch {
+        mtime = Date.now();
+      }
+    }
+    return `${v}+${Math.round(mtime)}`;
+  } catch {
+    return null;
+  }
+}
 
 function loadDotenv() {
   const file = join(repoRoot, ".env");
@@ -42,10 +74,16 @@ const origin = `http://${host}:${port}`;
 // Parse flags
 const argv = process.argv.slice(2);
 let keepApiKey = false;
+let noStatusline = false;
+let noOpen = false;
+let noTitle = false;
 const passthrough = [];
 for (let i = 0; i < argv.length; i++) {
   const a = argv[i];
   if (a === "--api-key") keepApiKey = true;
+  else if (a === "--no-statusline") noStatusline = true;
+  else if (a === "--no-open") noOpen = true;
+  else if (a === "--no-title") noTitle = true;
   else if (a === "--") {
     passthrough.push(...argv.slice(i + 1));
     break;
@@ -54,24 +92,66 @@ for (let i = 0; i < argv.length; i++) {
   }
 }
 
+function ensureStatusLine() {
+  try {
+    const settingsFile = join(homedir(), ".claude", "settings.json");
+    let current = {};
+    if (existsSync(settingsFile)) {
+      const raw = readFileSync(settingsFile, "utf8").trim();
+      if (raw) current = JSON.parse(raw);
+    }
+    const cmd = current?.statusLine?.command;
+    if (typeof cmd === "string" && cmd.includes("scripts/statusline.mjs")) return;
+    const res = spawnSync(process.execPath, [join(repoRoot, "scripts", "install-statusline.mjs")], {
+      cwd: repoRoot,
+      stdio: "inherit",
+    });
+    if (res.status !== 0) {
+      console.warn("  (could not install the Claude Saver status line automatically; continuing)");
+    }
+  } catch {
+    // Non-fatal; just skip.
+  }
+}
+
 async function probeHealth() {
   try {
     const res = await fetch(`${origin}/health`, { signal: AbortSignal.timeout(1500) });
-    if (!res.ok) return false;
+    if (!res.ok) return null;
     const j = await res.json();
-    return j && j.ok === true;
+    if (!j || j.ok !== true) return null;
+    return j;
   } catch {
-    return false;
+    return null;
   }
 }
 
 async function waitForHealth(ms = 8000) {
   const deadline = Date.now() + ms;
   while (Date.now() < deadline) {
-    if (await probeHealth()) return true;
+    const h = await probeHealth();
+    if (h) return h;
     await new Promise((r) => setTimeout(r, 200));
   }
-  return false;
+  return null;
+}
+
+function killPidOnPort(port) {
+  if (process.platform === "win32") return false;
+  const r = spawnSync("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], { encoding: "utf8" });
+  const pids = (r.stdout || "")
+    .split(/\s+/)
+    .map((s) => Number(s))
+    .filter((n) => Number.isFinite(n) && n > 0 && n !== process.pid);
+  if (!pids.length) return false;
+  for (const pid of pids) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // ignore
+    }
+  }
+  return true;
 }
 
 function startProxyBackground() {
@@ -105,12 +185,27 @@ function hasClaudeOnPath() {
     process.exit(127);
   }
 
-  let alive = await probeHealth();
-  if (!alive) {
+  const expected = expectedBuild();
+  let health = await probeHealth();
+
+  if (health && expected && health.build && health.build !== expected) {
+    console.log(
+      `Existing proxy at ${origin} is stale (build ${health.build} vs ${expected}). Restarting it ...`,
+    );
+    killPidOnPort(port);
+    // Wait for the port to actually free up
+    for (let i = 0; i < 25; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      if (!(await probeHealth())) break;
+    }
+    health = null;
+  }
+
+  if (!health) {
     console.log(`Starting Claude Saver proxy at ${origin} ...`);
     startProxyBackground();
-    alive = await waitForHealth();
-    if (!alive) {
+    health = await waitForHealth();
+    if (!health) {
       console.error(
         `Proxy did not become healthy at ${origin}. Run \`npm run dev\` in a separate terminal to see logs.`,
       );
@@ -120,6 +215,12 @@ function hasClaudeOnPath() {
     console.log(`Using existing proxy at ${origin}.`);
   }
 
+  if (!noStatusline) ensureStatusLine();
+  if (!noOpen && openDashboardOnce(origin, "claude")) {
+    console.log(`Opening Claude Saver dashboard at ${origin} ...`);
+  }
+  const stopTitle = noTitle ? () => {} : startTitleUpdater({ origin, prefix: "Claude" });
+
   const childEnv = { ...process.env, ANTHROPIC_BASE_URL: origin };
   if (!keepApiKey) {
     // Default to subscription mode: strip so OAuth Bearer token is used by `claude`.
@@ -128,6 +229,7 @@ function hasClaudeOnPath() {
 
   const cc = spawn("claude", passthrough, { stdio: "inherit", env: childEnv });
   cc.on("exit", (code, sig) => {
+    stopTitle();
     if (sig) process.kill(process.pid, sig);
     else process.exit(code ?? 0);
   });

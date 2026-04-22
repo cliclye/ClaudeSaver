@@ -51,12 +51,12 @@ async function probeHealth(origin) {
   }
 }
 
-function hasClaudeOnPath() {
+function hasOnPath(name) {
   const sep = process.platform === "win32" ? ";" : ":";
   const exts = process.platform === "win32" ? [".exe", ".cmd", ".bat", ""] : [""];
   for (const dir of (process.env.PATH || "").split(sep)) {
     if (!dir) continue;
-    for (const ext of exts) if (existsSync(join(dir, `claude${ext}`))) return true;
+    for (const ext of exts) if (existsSync(join(dir, `${name}${ext}`))) return true;
   }
   return false;
 }
@@ -92,16 +92,17 @@ if (running) {
 }
 
 // claude CLI
-if (hasClaudeOnPath()) line(OK, "`claude` CLI on PATH");
+if (hasOnPath("claude")) line(OK, "`claude` CLI on PATH");
 else line(WARN, "`claude` CLI not on PATH", "install: https://code.claude.com/docs/en/install");
 
-// API key hint
-const apiKey = process.env.ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY;
-if (apiKey) line(OK, "ANTHROPIC_API_KEY set (Console/API path)");
+// API key hints
+const anthKey = process.env.ANTHROPIC_API_KEY || env.ANTHROPIC_API_KEY;
+if (anthKey) line(OK, "ANTHROPIC_API_KEY set (Console/API path)");
 else line(OK, "ANTHROPIC_API_KEY unset (subscription / OAuth path)");
 
 console.log("");
-console.log(`  Next: \`npm run dev\` (or \`npm start\` after \`npm run build\`), then \`npm run claude\`.`);
+console.log(`  Next: \`npm run dev\` (or \`npm start\` after \`npm run build\`).`);
+console.log(`        Then \`npm run claude\`.`);
 console.log("");
 
 process.exit(hadFail ? 1 : 0);

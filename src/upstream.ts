@@ -13,6 +13,9 @@ const HOP = new Set([
   "upgrade",
   "host",
   "content-length",
+  // Node's `fetch` (undici) transparently decompresses gzip/deflate/br on response,
+  // so we must not re-use the client's `accept-encoding` upstream verbatim.
+  "accept-encoding",
 ]);
 
 function headerString(req: FastifyRequest, name: string): string | undefined {
@@ -23,12 +26,11 @@ function headerString(req: FastifyRequest, name: string): string | undefined {
 }
 
 /**
- * Claude Code can authenticate with:
- * - `X-Api-Key` (Console API key / `ANTHROPIC_API_KEY`)
- * - `Authorization: Bearer …` (`ANTHROPIC_AUTH_TOKEN`, OAuth subscription, `CLAUDE_CODE_OAUTH_TOKEN`, gateways)
+ * Claude Code can authenticate with `X-Api-Key` (Console API key / `ANTHROPIC_API_KEY`) or
+ * `Authorization: Bearer …` (`ANTHROPIC_AUTH_TOKEN`, OAuth subscription, `CLAUDE_CODE_OAUTH_TOKEN`).
  *
- * If the client uses Bearer auth (typical for Pro/Max/Team subscription login), we must **not** inject a
- * server-side `ANTHROPIC_API_KEY` — that would send conflicting credentials to api.anthropic.com.
+ * If the client uses Bearer auth, we must **not** inject a server-side API key — that would
+ * send conflicting credentials upstream.
  */
 function buildUpstreamHeaders(req: FastifyRequest): Record<string, string> {
   const out: Record<string, string> = {};
@@ -52,14 +54,16 @@ function buildUpstreamHeaders(req: FastifyRequest): Record<string, string> {
   return out;
 }
 
-export async function forwardToAnthropic(
+export async function forwardUpstream(
   req: FastifyRequest,
   upstreamPathAndQuery: string,
   body: string | undefined,
 ): Promise<Response> {
-  const url = `${config.upstreamUrl}${upstreamPathAndQuery}`;
+  const url = `${config.anthropicUpstreamUrl}${upstreamPathAndQuery}`;
   const headers = buildUpstreamHeaders(req);
   if (body !== undefined && !headers["content-type"]) headers["content-type"] = "application/json";
+  // Disable upstream compression — see fetchToCodecMismatch fix in README.
+  headers["accept-encoding"] = "identity";
 
   return fetch(url, {
     method: req.method,

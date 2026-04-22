@@ -9,7 +9,9 @@
     "dev": "node --watch --import tsx src/index.ts",
     "setup": "node scripts/setup-env.mjs",
     "doctor": "node scripts/doctor.mjs",
-    "claude": "node scripts/claude-with-proxy.mjs"
+    "claude": "node scripts/claude-with-proxy.mjs",
+    "statusline": "node scripts/statusline.mjs",
+    "install-statusline": "node scripts/install-statusline.mjs"
   },
   "engines": {
     "node": ">=20"
